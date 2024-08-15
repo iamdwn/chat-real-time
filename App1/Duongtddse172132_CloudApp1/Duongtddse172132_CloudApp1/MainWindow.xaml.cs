@@ -1,8 +1,11 @@
-﻿using FirebaseAdmin;
+﻿using Firebase.Auth;
+using Firebase.Storage;
+using FirebaseAdmin;
 using Google.Apis.Auth.OAuth2;
 using Google.Cloud.Firestore;
 using Microsoft.AspNetCore.SignalR.Client;
 using Microsoft.Win32;
+using Newtonsoft.Json;
 using System.IO;
 using System.Text.Json;
 using System.Windows;
@@ -84,6 +87,7 @@ namespace Duongtddse172132_CloudApp1
                         await connection.InvokeAsync("SendMessage", user, message);
                         //AddMessageToChatHistory(user, "Receiver", message);
                         MessageTextBox.Clear();
+                        await SaveChatHistory();
                     }
                     catch (Exception ex)
                     {
@@ -106,6 +110,7 @@ namespace Duongtddse172132_CloudApp1
                 Message = message,
                 Timestamp = DateTime.Now
             };
+
 
             chatHistory.Add(chatMessage);
 
@@ -141,27 +146,26 @@ namespace Duongtddse172132_CloudApp1
             }
         }
 
-        private void MainWindow_Closing(object sender, System.ComponentModel.CancelEventArgs e)
+        private async void MainWindow_Closing(object sender, System.ComponentModel.CancelEventArgs e)
         {
-            SaveChatHistory();
+            await SaveChatHistory();
         }
 
-        private void SaveChatHistory()
+        private async Task SaveChatHistory()
         {
-            SaveFileDialog saveFileDialog = new SaveFileDialog
+            try
             {
-                Filter = "JSON Files (*.json)|*.json",
-                FileName = "chatHistory.json"
-            };
-
-            if (saveFileDialog.ShowDialog() == true)
+                var localFilePath = Path.Combine(Directory.GetCurrentDirectory(), "chatHistory.json");
+                var json = JsonConvert.SerializeObject(chatHistory, Formatting.Indented);
+                File.WriteAllText(localFilePath, json);
+                await UploadFileToFirebase(localFilePath);
+            }
+            catch (Exception ex)
             {
-                string filePath = saveFileDialog.FileName;
-
-                string json = JsonSerializer.Serialize(chatHistory, new JsonSerializerOptions { WriteIndented = true });
-                File.WriteAllText(filePath, json);
+                MessageBox.Show($"Failed to save or upload chat history: {ex.Message}");
             }
         }
+
 
         public class ChatMessage
         {
@@ -171,32 +175,38 @@ namespace Duongtddse172132_CloudApp1
             public DateTime Timestamp { get; set; }
         }
 
-        private async void UploadButton_Click(object sender, RoutedEventArgs e)
+        public async Task<string> GetFirebaseAuthToken(string email, string password)
+        {
+            var authProvider = new FirebaseAuthProvider(new FirebaseConfig("AIzaSyC8ufMTi4s2D9g17q5jX0C4PIi-ahelFGQ"));
+            var auth = await authProvider.SignInWithEmailAndPasswordAsync(email, password);
+            return await auth.GetFreshAuthAsync().ContinueWith(task => task.Result.FirebaseToken);
+        }
+
+        private async Task UploadFileToFirebase(string filePath)
         {
             try
             {
-                var firestoreDb = FirestoreDb.Create("fir-chathistory");
+                var storage = new FirebaseStorage(
+                    "fir-chathistory.appspot.com",
+                    new FirebaseStorageOptions
+                    {
+                        AuthTokenAsyncFactory = async () => await GetFirebaseAuthToken("nextintern.corp@gmail.com", "swdnextinterniumaycauratnhiu:D"),
+                        ThrowOnCancel = true
+                    });
 
-                var chatHistoryJson = JsonSerializer.Serialize(chatHistory, new JsonSerializerOptions { WriteIndented = true });
-
-                var documentData = new Dictionary<string, object>
-        {
-            { "chatHistory", chatHistoryJson },
-            { "timestamp", Timestamp.FromDateTime(DateTime.UtcNow) }
-        };
-
-                CollectionReference chatHistoryCollection = firestoreDb.Collection("ChatHistories");
-
-                await chatHistoryCollection.AddAsync(documentData);
-
-                MessageBox.Show("Chat history uploaded successfully!");
+                using (var fileStream = File.OpenRead(filePath))
+                {
+                    var uploadTask = await storage
+                        .Child("chatHistory")
+                        .Child("chatHistory.json")
+                        .PutAsync(fileStream);
+                }
             }
             catch (Exception ex)
             {
-                MessageBox.Show($"Failed to upload chat history: {ex.Message}");
+                Console.WriteLine($"Error uploading file: {ex.Message}");
             }
         }
-
 
     }
 }

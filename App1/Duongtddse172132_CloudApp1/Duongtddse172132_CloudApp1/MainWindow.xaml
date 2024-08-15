@@ -17,9 +17,6 @@
                      VerticalAlignment="Center" Margin="0,0,10,0" KeyDown="UserInputTextBox_KeyDown"/>
             <Button x:Name="SendMessageButton" Content="Send" Width="100" 
                     Height="30" Click="SendMessage_Click"/>
-            <Button x:Name="UploadButton" Content="Upload" Width="100" 
-                    Height="30" Click="UploadButton_Click"/>
-
         </StackPanel>
     </Grid>
 </Window>

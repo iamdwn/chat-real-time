@@ -1,6 +1,11 @@
-﻿using Google.Cloud.Firestore;
+﻿using Firebase.Auth;
+using Firebase.Storage;
+using FirebaseAdmin;
+using Google.Apis.Auth.OAuth2;
+using Google.Cloud.Firestore;
 using Microsoft.AspNetCore.SignalR.Client;
 using Microsoft.Win32;
+using Newtonsoft.Json;
 using System;
 using System.IO;
 using System.Text.Json;
@@ -20,6 +25,12 @@ namespace Duongtddse172132_CloudApp2
         public MainWindow()
         {
             InitializeComponent();
+            InitializeSignalR();
+            InitializeFirebase();
+        }
+
+        public void InitializeSignalR()
+        {
             chatHistory = new List<ChatMessage>();
 
             connection = new HubConnectionBuilder()
@@ -32,13 +43,21 @@ namespace Duongtddse172132_CloudApp2
             {
                 Dispatcher.Invoke(() =>
                 {
-                    AddMessageToChatHistory(user, "User1", message);
+                    AddMessageToChatHistory(user, "User2", message);
                 });
             });
 
             StartConnection();
+        }
 
-            this.Closing += MainWindow_Closing;
+        public void InitializeFirebase()
+        {
+            FirebaseApp.Create(new AppOptions
+            {
+                Credential = GoogleCredential.FromFile("D:\\Docm\\Dev\\.learning-process\\C#\\PRN221_B3W\\chat-real-time\\App1\\Duongtddse172132_CloudApp1\\Duongtddse172132_CloudApp1\\serviceAccount.json"),
+                ProjectId = "fir-chathistory",
+            });
+
         }
 
         private async void StartConnection()
@@ -130,23 +149,20 @@ namespace Duongtddse172132_CloudApp2
             SaveChatHistory();
         }
 
-        private void SaveChatHistory()
+        private async void SaveChatHistory()
         {
-            SaveFileDialog saveFileDialog = new SaveFileDialog
+            try
             {
-                Filter = "JSON Files (*.json)|*.json",
-                FileName = "chatHistory.json"
-            };
-
-            if (saveFileDialog.ShowDialog() == true)
+                var localFilePath = Path.Combine(Directory.GetCurrentDirectory(), "chatHistory.json");
+                var json = JsonConvert.SerializeObject(chatHistory, Formatting.Indented);
+                File.WriteAllText(localFilePath, json);
+                await UploadFileToFirebase(localFilePath);
+            }
+            catch (Exception ex)
             {
-                string filePath = saveFileDialog.FileName;
-
-                string json = JsonSerializer.Serialize(chatHistory, new JsonSerializerOptions { WriteIndented = true });
-                File.WriteAllText(filePath, json);
+                MessageBox.Show($"Failed to save or upload chat history: {ex.Message}");
             }
         }
-
 
         public class ChatMessage
         {
@@ -156,29 +172,36 @@ namespace Duongtddse172132_CloudApp2
             public DateTime Timestamp { get; set; }
         }
 
-        private async void UploadButton_Click(object sender, RoutedEventArgs e)
+        public async Task<string> GetFirebaseAuthToken(string email, string password)
+        {
+            var authProvider = new FirebaseAuthProvider(new FirebaseConfig("AIzaSyC8ufMTi4s2D9g17q5jX0C4PIi-ahelFGQ"));
+            var auth = await authProvider.SignInWithEmailAndPasswordAsync(email, password);
+            return await auth.GetFreshAuthAsync().ContinueWith(task => task.Result.FirebaseToken);
+        }
+
+        private async Task UploadFileToFirebase(string filePath)
         {
             try
             {
-                var firestoreDb = FirestoreDb.Create("fir-chathistory");
+                var storage = new FirebaseStorage(
+                    "fir-chathistory.appspot.com",
+                    new FirebaseStorageOptions
+                    {
+                        AuthTokenAsyncFactory = async () => await GetFirebaseAuthToken("nextintern.corp@gmail.com", "swdnextinterniumaycauratnhiu:D"),
+                        ThrowOnCancel = true
+                    });
 
-                var chatHistoryJson = JsonSerializer.Serialize(chatHistory, new JsonSerializerOptions { WriteIndented = true });
-
-                var documentData = new Dictionary<string, object>
-        {
-            { "chatHistory", chatHistoryJson },
-            { "timestamp", Timestamp.FromDateTime(DateTime.UtcNow) }
-        };
-
-                CollectionReference chatHistoryCollection = firestoreDb.Collection("ChatHistories");
-
-                await chatHistoryCollection.AddAsync(documentData);
-
-                MessageBox.Show("Chat history uploaded successfully!");
+                using (var fileStream = File.OpenRead(filePath))
+                {
+                    var uploadTask = await storage
+                        .Child("chatHistory")
+                        .Child("chatHistory.json")
+                        .PutAsync(fileStream);
+                }
             }
             catch (Exception ex)
             {
-                MessageBox.Show($"Failed to upload chat history: {ex.Message}");
+                Console.WriteLine($"Error uploading file: {ex.Message}");
             }
         }
     }
