@@ -1,5 +1,9 @@
-﻿using Microsoft.AspNetCore.SignalR.Client;
+﻿using Google.Cloud.Firestore;
+using Microsoft.AspNetCore.SignalR.Client;
+using Microsoft.Win32;
 using System;
+using System.IO;
+using System.Text.Json;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Documents;
@@ -11,10 +15,12 @@ namespace Duongtddse172132_CloudApp2
     public partial class MainWindow : Window
     {
         private HubConnection connection;
+        private List<ChatMessage> chatHistory;
 
         public MainWindow()
         {
             InitializeComponent();
+            chatHistory = new List<ChatMessage>();
 
             connection = new HubConnectionBuilder()
                 .WithUrl("http://localhost:5258/chathub")
@@ -26,11 +32,13 @@ namespace Duongtddse172132_CloudApp2
             {
                 Dispatcher.Invoke(() =>
                 {
-                    AddMessageToChatHistory(user, message);
+                    AddMessageToChatHistory(user, "User1", message);
                 });
             });
 
             StartConnection();
+
+            this.Closing += MainWindow_Closing;
         }
 
         private async void StartConnection()
@@ -58,7 +66,7 @@ namespace Duongtddse172132_CloudApp2
                         string message = MessageTextBox.Text;
 
                         await connection.InvokeAsync("SendMessage", user, message);
-                        //AddMessageToChatHistory(user, message);
+                        //AddMessageToChatHistory(user, "Receiver", message);
                         MessageTextBox.Clear();
                     }
                     catch (Exception ex)
@@ -73,8 +81,18 @@ namespace Duongtddse172132_CloudApp2
             }
         }
 
-        private void AddMessageToChatHistory(string sender, string message)
+        private void AddMessageToChatHistory(string sender, string receiver, string message)
         {
+            ChatMessage chatMessage = new ChatMessage
+            {
+                Sender = sender,
+                Receiver = receiver,
+                Message = message,
+                Timestamp = DateTime.Now
+            };
+
+            chatHistory.Add(chatMessage);
+
             TextBlock messageTextBlock = new TextBlock
             {
                 Text = $"{message}",
@@ -104,6 +122,63 @@ namespace Duongtddse172132_CloudApp2
             if (e.Key == Key.Enter)
             {
                 SendMessage_Click(sender, e);
+            }
+        }
+
+        private void MainWindow_Closing(object sender, System.ComponentModel.CancelEventArgs e)
+        {
+            SaveChatHistory();
+        }
+
+        private void SaveChatHistory()
+        {
+            SaveFileDialog saveFileDialog = new SaveFileDialog
+            {
+                Filter = "JSON Files (*.json)|*.json",
+                FileName = "chatHistory.json"
+            };
+
+            if (saveFileDialog.ShowDialog() == true)
+            {
+                string filePath = saveFileDialog.FileName;
+
+                string json = JsonSerializer.Serialize(chatHistory, new JsonSerializerOptions { WriteIndented = true });
+                File.WriteAllText(filePath, json);
+            }
+        }
+
+
+        public class ChatMessage
+        {
+            public string Sender { get; set; }
+            public string Receiver { get; set; }
+            public string Message { get; set; }
+            public DateTime Timestamp { get; set; }
+        }
+
+        private async void UploadButton_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                var firestoreDb = FirestoreDb.Create("fir-chathistory");
+
+                var chatHistoryJson = JsonSerializer.Serialize(chatHistory, new JsonSerializerOptions { WriteIndented = true });
+
+                var documentData = new Dictionary<string, object>
+        {
+            { "chatHistory", chatHistoryJson },
+            { "timestamp", Timestamp.FromDateTime(DateTime.UtcNow) }
+        };
+
+                CollectionReference chatHistoryCollection = firestoreDb.Collection("ChatHistories");
+
+                await chatHistoryCollection.AddAsync(documentData);
+
+                MessageBox.Show("Chat history uploaded successfully!");
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Failed to upload chat history: {ex.Message}");
             }
         }
     }
