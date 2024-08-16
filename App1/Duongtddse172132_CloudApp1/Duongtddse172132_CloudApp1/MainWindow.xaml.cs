@@ -166,7 +166,6 @@ namespace Duongtddse172132_CloudApp1
             }
         }
 
-
         public class ChatMessage
         {
             public string Sender { get; set; }
