@@ -193,7 +193,7 @@ namespace Duongtddse172132_CloudApp2
 
                 using (var fileStream = File.OpenRead(filePath))
                 {
-                    var uploadTask = await storage
+                    await storage
                         .Child("chatHistory")
                         .Child("chatHistory.json")
                         .PutAsync(fileStream);
